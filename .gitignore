@@ -164,3 +164,6 @@ index-store/
 node_modules/
 local-json-db.json
 .DS_Store
+
+# LLM Based Storage
+*-store/

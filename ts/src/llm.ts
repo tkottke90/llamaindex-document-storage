@@ -7,7 +7,7 @@ const TIMEOUT_SEC = TIMEOUT_MIN * 60;
 
 console.debug(`> [${new Date().toISOString()}] Timeout: ${Math.round(TIMEOUT_SEC)} secs`)
 
-export const ollamaLLM = new Ollama({ model: "llama2", temperature: 0.7, baseURL: OLLAMA_BASE_URL, requestTimeout: TIMEOUT_SEC * 1000 });
+export const ollamaLLM = new Ollama({ model: "llama2", temperature: 1, baseURL: OLLAMA_BASE_URL, requestTimeout: TIMEOUT_SEC * 1000 });
 
 export const serviceContext = serviceContextFromDefaults({
   llm: ollamaLLM,
@@ -15,8 +15,8 @@ export const serviceContext = serviceContextFromDefaults({
   nodeParser: new MarkdownNodeParser()
 });
 
-export function chat(prompt: ChatMessage) {  
-  return ollamaLLM.chat({ messages: [prompt]})
+export function chat(...prompt: ChatMessage[]) {  
+  return ollamaLLM.chat({ messages: prompt})
 }
 
 export function chatStream(prompt: string) {
