@@ -2,4 +2,8 @@ llama-index == 0.10.9
 llama-index-llms-ollama == 0.1.1
 llama-index-embeddings-ollama
 llama-index-readers-web
+llama-index-graph-stores-neo4j
+llama-index-vector-stores-neo4jvector
+llama-index-readers-file
+beautifulsoup4
 python-dotenv
