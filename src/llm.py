@@ -11,6 +11,8 @@ model="llama2"
 baseUrl = os.environ.get('OLLAMA_BASE_URL')
 
 ollama = Ollama(model=model, request_timeout=180.0, temperature=0.1)
+documentTitle = Ollama(model="document-title:latest", request_timeout=180.0)
+answerFinder = Ollama(model="answer-finder:latest", request_timeout=180.0)
 codelama = Ollama(model="codellama:13b", request_timeout=180.0)
 
 def get_ollama():

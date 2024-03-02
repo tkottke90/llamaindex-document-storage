@@ -17,7 +17,7 @@ parser = MarkdownNodeParser()
 def load_docs(directory):
   return SimpleDirectoryReader(directory, filename_as_id=True).load_data()
 
-def loadWebPages(urls: list[str], subTag: str = None):
+def loadWebPages(urls: list[str]):
   return SimpleWebPageReader().load_data(urls)
 
 def parseWebPage(html: str, contentTag: str = 'main'):
