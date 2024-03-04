@@ -6,6 +6,7 @@ from .db import graphStore
 from os import path
 from llama_index.core.node_parser import MarkdownNodeParser, HTMLNodeParser
 from llama_index.core.storage.docstore import SimpleDocumentStore
+from .log_utils import debug
 from bs4 import BeautifulSoup
 import re
 
@@ -22,12 +23,25 @@ def loadWebPages(urls: list[str]):
 
 def parseWebPage(html: str, contentTag: str = 'main'):
   htmlDoc = BeautifulSoup(html, 'html.parser')
-  return htmlDoc.find(contentTag).text
+  return htmlDoc.find(contentTag)
 
 def getLinks(html: str, url: str = "http://localhost"):
   htmlDoc = BeautifulSoup(html, 'html.parser')
-  links = htmlDoc.findAll('a', recursive=True, href=re.compile("{}.*".format(url)))
-  return map(lambda link: link['href'], links)
+  pattern = f'{url}.*'
+  links = htmlDoc.findAll('a', recursive=True, href=re.compile(pattern))
+  
+  debug(f'====> Links Found In Document: {len(links)}')
+  
+  matchingLinks = list(set(map(lambda link: link['href'], links)))
+  
+  debug(f'====> Links Matching URL: {len(matchingLinks)}')
+
+  if (len(matchingLinks) == 0):
+    debug(f'====> No matches found in list: {links}')
+  else:
+    debug(f'====> Links Matching URL: {len(matchingLinks)}')
+
+  return matchingLinks
 
 
 def createWebPageDocStore(urls: list[str]):

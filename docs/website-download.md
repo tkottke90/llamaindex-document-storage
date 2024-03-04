@@ -99,3 +99,10 @@ The key benefit here is that I can provide a _root url_ and the script will take
 >    Link Count: 20352
 > ```
 
+## Data Download Optimization
+
+Part of my problem with the data download was how long it took as well as how expensive it was.  The last time I looked all of those documents in-memory cost about 8 GB of ram to maintain.  
+
+I felt there must be a better way to handle the data without needing my beefy Mac M1 Pro Max and it's 64 GB of RAM.  
+
+So I went back to the drawing board on how to ingest documents.  

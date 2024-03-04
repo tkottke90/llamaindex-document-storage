@@ -5,25 +5,112 @@ import dotenv
 dotenv.load_dotenv()
 
 import json
-from llama_index.core import Document, StorageContext, VectorStoreIndex, load_index_from_storage
+from llama_index.core import Document, KnowledgeGraphIndex, StorageContext, VectorStoreIndex, load_index_from_storage, load_graph_from_storage
 from llama_index.core.extractors import TitleExtractor, QuestionsAnsweredExtractor
+from llama_index.core.query_engine.graph_query_engine import ComposableGraphQueryEngine
 from llama_index.extractors.entity import EntityExtractor
-from llama_index.core.node_parser import TokenTextSplitter
 from llama_index.core.ingestion import IngestionPipeline
-from llama_index.core.schema import BaseNode
+from llama_index.core.node_parser import TokenTextSplitter
 from llama_index.core.storage.docstore import SimpleDocumentStore
-from os import path, mkdir
+from os import path
 from src.documents import loadWebPages, parseWebPage, getLinks
+from src.db import graphStore, vectorStore, documentStore
 from src.file_utils import createOutputFile
 from src.llm import documentTitle, answerFinder, get_service_context
 from src.log_utils import debug
+from src.rebel import extract_triplets
 from typing import Sequence
+from datetime import datetime
 
 # 1. Download Site
 
 failedLinks = []
 
+TARGET = "https://www.5esrd.com"
 STORAGE = "./srd-store"
+
+title = " Web Site Document Loader "
+print("=" * len(title))
+print(title)
+print("=" * len(title))
+
+print("> Creating Output File")
+file = createOutputFile('./kg-output', 'srd-graph-result')
+
+def loadIndex():
+  context = StorageContext.from_defaults(graph_store=graphStore, vector_store=vectorStore, docstore=documentStore)
+  graph = load_graph_from_storage(context, 'root')
+  
+  return context,graph
+
+def loadWebsitesIntoGraph(url: str, context: StorageContext, links: set = set()):
+  file.write(f'\n### URL: {url}\n')
+  
+  debug("==> Loading Web URL [url: {}]".format(url))
+  document = loadWebPages([url]).pop()
+
+  documentDetails: dict[str, any] = {
+    "id": document.doc_id,
+    "text": document.text[:20]
+  }
+  file.write('LlamaIndex Document Details:\n')
+  file.write(f'```json\n')
+  file.write(f'{json.dumps(documentDetails, indent=2)}')
+  file.write(f'\n```\n\n')
+
+  debug("====> Parsing HTML [url: {}]".format(url))
+  htmlDoc = parseWebPage(document.text);
+
+  file.write('HTML Document:\n')
+  file.write(f'```html\n')
+  file.write(f'{htmlDoc}')
+  file.write(f'\n```\n')
+
+  debug("====> Creating Document [url: {}]".format(url))
+  now = datetime.now()
+  createDate = f'{now:%Y%m%d%H%M%S}'
+  nodes = metadataExtractor([Document(text=htmlDoc.text, id_=url, metadata={ "source": url, "createdAt": createDate })])
+
+  file.write('Document Nodes w/ Metadata:\n')
+  file.write(f'```json\n')
+  file.write(f'{nodes}')
+  file.write(f'\n```\n')
+
+  context.docstore.add_documents(nodes, store_text=False)
+
+  print(f'Docstore Size: {len(context.docstore.docs)}')
+
+  debug("====> Loading Into Graph DB [url: {}]".format(url))
+
+  KnowledgeGraphIndex(
+    nodes=nodes,
+    service_context=get_service_context(),
+    kg_triplet_extract_fn=extract_triplets,
+    storage_context=context,
+    show_progress=True
+  )
+
+  debug("====> Getting Links [url: {}]".format(url))
+  webPageLinks = getLinks(htmlDoc.encode_contents(formatter="html"), url=url)
+
+  file.write('Links in HTML that match domain:\n')
+  file.write(f'```json\n')
+  file.write(json.dumps(webPageLinks, indent=2))
+  file.write(f'\n```\n')
+
+  debug(f'====> Links found: {len(webPageLinks)}')
+
+  for link in webPageLinks:
+    try:
+      if (link not in links):
+        links.add(link)
+        loadWebsitesIntoGraph(link, context, links=links)
+      else:
+        debug("===> Link Already Loaded [url: {}]...Skipping".format(url))
+    except Exception as error:
+      print(f'{error}')
+      failedLinks.append(link)
+      exit()
 
 def getDocumentStore(documents: Sequence[Document]):
   dirExists = path.isdir(STORAGE)
@@ -81,7 +168,7 @@ def getWebDocumentAndLinks(url: str, documents: list[Document] = [], links: set 
   finally:
     return documents, links
 
-def metadataExtractor():
+def metadataExtractor(documents: list[Document]):
   splitter = TokenTextSplitter(
     separator=" ", chunk_size=512, chunk_overlap=128
   )
@@ -90,28 +177,28 @@ def metadataExtractor():
   qaExtractor = QuestionsAnsweredExtractor(questions=3, llm=answerFinder)
   entity = EntityExtractor(prediction_threshold=0.75, label_entities=True)
 
-  return [splitter, titleExtractor, qaExtractor, entity]
+  return IngestionPipeline(transformations=[splitter, titleExtractor, qaExtractor, entity]).run(documents=documents)
 
-title = " Web Site Document Loader "
-print("=" * len(title))
-print(title)
-print("=" * len(title))
-
-print("> Creating Output File")
-file = createOutputFile('./kg-output', 'srd-graph-result')
+print("> Loading Index from Neo4j")
+context, graph = loadIndex()
 
 print("> Loading Web Pages")
-docs, links = getWebDocumentAndLinks("https://www.5esrd.com/classes")
+file.write(f'**Target:** {TARGET}\n\n')
 
-print("> Loading Pages Complete")
-print("    Document Count: {}".format(len(docs)))
-print("    Link Count: {}".format(len(links)))
+file.write("""
+---
+## Loading Documents
+**Details on the documents loaded into the system**
 
-file.write("## Web Page Loading\n\n")
+""")
+loadWebsitesIntoGraph(TARGET, context=context)
+# queryEngine = ComposableGraphQueryEngine(graph=graph)
+
+
+file.write("## Web Page Loading Result\n\n")
 file.write("| Item | Count |\n")
 file.write("| :-: | :-: |\n")
-file.write("| Documents | {} |\n".format(len(docs)))
-file.write("| Links | {} |\n".format(len(links)))
+file.write("| Documents | {} |\n".format(len(context.docstore.docs)))
 file.write("| Failed Downloads | {} |\n\n".format(len(failedLinks)))
 file.write("**Failed Links**\n".format(len(failedLinks)))
 file.write("```json\n[\n".format(len(failedLinks)))
@@ -119,7 +206,7 @@ for badLink in failedLinks:
   file.write(" \"{}\",".format(badLink))
 file.write("]\n```\n\n---\n".format(len(failedLinks)))
 
-file.flush()
+exit()
 
 # 2. Create Graph Index & Store
 print("> Process Documents")

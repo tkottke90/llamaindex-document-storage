@@ -6,6 +6,10 @@ llama-index-graph-stores-neo4j
 llama-index-readers-file
 llama-index-readers-web
 llama-index-vector-stores-neo4jvector
+llama-index-storage-docstore-mongodb
+pymongo
+motor
 beautifulsoup4
 python-dotenv
 Flask==0.12.1
+transformers
