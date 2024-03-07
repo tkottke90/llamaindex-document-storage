@@ -7,9 +7,11 @@ llama-index-readers-file
 llama-index-readers-web
 llama-index-vector-stores-neo4jvector
 llama-index-storage-docstore-mongodb
+langchain
 pymongo
 motor
 beautifulsoup4
+markdownify
 python-dotenv
 Flask==0.12.1
 transformers

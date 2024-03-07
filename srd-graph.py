@@ -10,7 +10,7 @@ from llama_index.core.extractors import TitleExtractor, QuestionsAnsweredExtract
 from llama_index.core.query_engine.graph_query_engine import ComposableGraphQueryEngine
 from llama_index.extractors.entity import EntityExtractor
 from llama_index.core.ingestion import IngestionPipeline
-from llama_index.core.node_parser import TokenTextSplitter
+from llama_index.core.node_parser import TokenTextSplitter, MarkdownNodeParser
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from os import path
 from src.documents import loadWebPages, parseWebPage, getLinks
@@ -21,6 +21,7 @@ from src.log_utils import debug
 from src.rebel import extract_triplets
 from typing import Sequence
 from datetime import datetime
+from markdownify import markdownify as md
 
 # 1. Download Site
 
@@ -29,6 +30,18 @@ failedLinks = []
 TARGET = "https://www.5esrd.com"
 STORAGE = "./srd-store"
 
+def loadIndex():
+  context = StorageContext.from_defaults(graph_store=graphStore, vector_store=vectorStore, docstore=documentStore)
+  graph = load_graph_from_storage(context, 'root')
+  
+  return context,graph
+
+
+# context = loadIndex()
+# load(TARGET, context)
+
+# exit()
+
 title = " Web Site Document Loader "
 print("=" * len(title))
 print(title)
@@ -36,12 +49,6 @@ print("=" * len(title))
 
 print("> Creating Output File")
 file = createOutputFile('./kg-output', 'srd-graph-result')
-
-def loadIndex():
-  context = StorageContext.from_defaults(graph_store=graphStore, vector_store=vectorStore, docstore=documentStore)
-  graph = load_graph_from_storage(context, 'root')
-  
-  return context,graph
 
 def loadWebsitesIntoGraph(url: str, context: StorageContext, links: set = set()):
   file.write(f'\n### URL: {url}\n')
@@ -69,21 +76,25 @@ def loadWebsitesIntoGraph(url: str, context: StorageContext, links: set = set())
   debug("====> Creating Document [url: {}]".format(url))
   now = datetime.now()
   createDate = f'{now:%Y%m%d%H%M%S}'
-  nodes = metadataExtractor([Document(text=htmlDoc.text, id_=url, metadata={ "source": url, "createdAt": createDate })])
+  # markdown = md(str(htmlDoc), strip=['script']).replace('\n\n', '\n')
 
-  file.write('Document Nodes w/ Metadata:\n')
-  file.write(f'```json\n')
-  file.write(f'{nodes}')
-  file.write(f'\n```\n')
+  parsedDocument = Document(
+      text=htmlDoc.text,
+      id_=url,
+      metadata={ "source": url, "createdAt": createDate })
+  
+  nodes = metadataExtractor([parsedDocument])
+
+  file.write('### Document Nodes w/ Metadata:\n')
+  file.write(f'{parsedDocument.text}\n')
 
   context.docstore.add_documents(nodes, store_text=False)
 
-  print(f'Docstore Size: {len(context.docstore.docs)}')
-
   debug("====> Loading Into Graph DB [url: {}]".format(url))
 
-  KnowledgeGraphIndex(
-    nodes=nodes,
+  KnowledgeGraphIndex.build_index_from_nodes()
+  KnowledgeGraphIndex.from_documents(
+    documents=[parsedDocument],
     service_context=get_service_context(),
     kg_triplet_extract_fn=extract_triplets,
     storage_context=context,
@@ -93,12 +104,9 @@ def loadWebsitesIntoGraph(url: str, context: StorageContext, links: set = set())
   debug("====> Getting Links [url: {}]".format(url))
   webPageLinks = getLinks(htmlDoc.encode_contents(formatter="html"), url=url)
 
-  file.write('Links in HTML that match domain:\n')
-  file.write(f'```json\n')
-  file.write(json.dumps(webPageLinks, indent=2))
-  file.write(f'\n```\n')
-
   debug(f'====> Links found: {len(webPageLinks)}')
+
+  exit()
 
   for link in webPageLinks:
     try:
@@ -110,7 +118,6 @@ def loadWebsitesIntoGraph(url: str, context: StorageContext, links: set = set())
     except Exception as error:
       print(f'{error}')
       failedLinks.append(link)
-      exit()
 
 def getDocumentStore(documents: Sequence[Document]):
   dirExists = path.isdir(STORAGE)
@@ -169,9 +176,11 @@ def getWebDocumentAndLinks(url: str, documents: list[Document] = [], links: set 
     return documents, links
 
 def metadataExtractor(documents: list[Document]):
-  splitter = TokenTextSplitter(
-    separator=" ", chunk_size=512, chunk_overlap=128
-  )
+  # splitter = TokenTextSplitter(
+  #   separator=" ", chunk_size=512, chunk_overlap=128
+  # )
+
+  splitter = MarkdownNodeParser()
 
   titleExtractor = TitleExtractor(nodes=5, llm=documentTitle)
   qaExtractor = QuestionsAnsweredExtractor(questions=3, llm=answerFinder)

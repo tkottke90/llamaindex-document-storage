@@ -12,5 +12,5 @@ Do not include any punctuation around your response
 TEMPLATE """{{ if .System}}<|im_start|>system
 {{ .System }}<|im_end|>{{ end }}
 {{ if .Prompt }}{{ .Prompt }}<|im_end|>{{ end }}
-<|im_start|>assistant
+<|im_start|>assistant<|im_end|>
 "

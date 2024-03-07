@@ -2,6 +2,7 @@ version: '3.7'
 
 services:
   mongodb:
+    container_name: knowledge-graph-mongo
     image: mongodb/mongodb-community-server:6.0-ubi8
     ports:
       - 27017:27017
@@ -9,9 +10,7 @@ services:
       - MONGO_INITDB_ROOT_USERNAME=user
       - MONGO_INITDB_ROOT_PASSWORD=pass
     volumes:
-      - type: bind
-        source: ./data
-        target: /data/db
+      - ./data/mongo:/data
   
   neo4j:
     container_name: knowledge-graph-neo4j
@@ -19,7 +18,7 @@ services:
     restart: unless-stopped
     volumes:
        - "./db-conf/plugins:/plugins"
-       - ./data:/data
+       - ./data/neo4j:/data
     ports:
       - 7474:7474
       - 7687:7687
