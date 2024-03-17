@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from llama_index.core import ServiceContext
 from llama_index.llms.ollama import Ollama
+from langchain.llms.ollama import Ollama as LangChainOllama
 from llama_index.embeddings.ollama import OllamaEmbedding
 
 load_dotenv()
@@ -28,6 +29,10 @@ knowledgeGraphAI = Ollama(
   model="kg-website:latest",
   request_timeout=180.0,
   temperature=0.1
+)
+
+jsonOutputFixer = LangChainOllama(
+    model="codellama:13b"
 )
 
 def get_ollama():

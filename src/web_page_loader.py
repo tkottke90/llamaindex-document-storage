@@ -1,94 +1,137 @@
+from llama_index.readers.web  import SimpleWebPageReader
+from bs4 import BeautifulSoup, SoupStrainer, Tag
+from markdownify import markdownify as md
+from typing import TypedDict
 import re
-from datetime import datetime
-from typing import Sequence
-from llama_index.core import Document, StorageContext, KnowledgeGraphIndex
-from llama_index.core.extractors import TitleExtractor, QuestionsAnsweredExtractor, KeywordExtractor
-from llama_index.core.ingestion import IngestionPipeline
-from llama_index.core.node_parser import TokenTextSplitter
-from llama_index.core.schema import BaseNode
-from llama_index.extractors.entity.base import EntityExtractor
-from llama_index.readers.web import SimpleWebPageReader
-from langchain.output_parsers import ResponseSchema, StructuredOutputParser
-from bs4 import BeautifulSoup
-from .rebel import extract_triplets
-from .llm import documentTitle, answerFinder, get_service_context
-from .config import DEBUG_ENABLED
-from .log_utils import debug
 
-def loadWebPages(urls: list[str]):
-  return SimpleWebPageReader().load_data(urls)
 
-def parseWebPage(html: str, contentTag: str = 'main'):
-  htmlDoc = BeautifulSoup(html, 'html.parser')
-  return htmlDoc.find(contentTag)
+def stringCleanUp(chunk: str, replacers: list[tuple[str, str, re.RegexFlag]]):
+  """
+  A wrapper function around the 're' modules "#sub" method.  This allows us to make multiple edits to a string
+  """
+  output = chunk;
 
-def getLinks(html: str, url: str = "http://localhost"):
-  htmlDoc = BeautifulSoup(html, 'html.parser')
-  pattern = f'{url}.*'
-  links = htmlDoc.findAll('a', recursive=True, href=re.compile(pattern))
+  for replacer in replacers:
+    flags = re.NOFLAG
+    if (len(replacer) == 3):
+      flags = replacer[2]
 
-def addNodesToKG(nodes: Sequence[BaseNode], context: StorageContext):
-  KnowledgeGraphIndex(
-    nodes=nodes,
-    service_context=get_service_context(),
-    kg_triplet_extract_fn=extract_triplets,
-    storage_context=context,
-    show_progress=DEBUG_ENABLED
+    output = re.sub(replacer[0], replacer[1], output, flags=flags)
+
+  return output
+
+BeautifulSoupSearch = TypedDict(
+  'HTMLSearch',
+  {
+    'name': SoupStrainer,
+    'attrs': SoupStrainer,
+    'recursive': bool,
+    'string': SoupStrainer
+  }
+)
+
+def extractElements(html: Tag, search: BeautifulSoupSearch):
+  output: list[Tag] = list()
+
+  print(search.get('attrs'))
+  elements = html.findAll(
+    name=search.get('name'),
+    attrs=search.get('attrs'),
+    recursive=search.get('recursive') or True,
+    string=search.get('string')
   )
 
-def metadataExtractor(documents: list[Document]):
-  splitter = TokenTextSplitter(
-    separator=" ", chunk_size=512, chunk_overlap=128
-  )
+  for elem in elements:
+    output.append(elem.extract());
 
-  titleExtractor = TitleExtractor(nodes=5, llm=documentTitle)
-  qaExtractor = QuestionsAnsweredExtractor(questions=3, llm=answerFinder)
-  entity = EntityExtractor(prediction_threshold=0.75, label_entities=True)
+  return output;
 
-  return IngestionPipeline(
-    transformations=[
-      splitter,
-      titleExtractor,
-      qaExtractor,
-      entity
+def removeElements(html: Tag, search: BeautifulSoupSearch):
+  extractElements(html, search)
+
+def htmlToMarkdown(html: str):
+  rawMdStr = md(str(html), heading_style="ATX")
+  return stringCleanUp(
+    rawMdStr,
+    [
+      [r'\n{3,}', '\n\n'],      # Remove excessive new lines
+      [r'â', '-'],              # Remove unicode character
+      [r'', ''],               # Remove unicode character
+      [r'\x94', '', re.UNICODE] # Remove unicode character
     ]
-  ).run(documents=documents)
+  )
 
-def load(url: str, context: StorageContext, links: set[str] = set()):
-  debug("==> Loading Web URL [url: {}]".format(url))
-  document = loadWebPages([url]).pop()
+def loadWebsite(
+    url: str,
+    contentTag: str = None,
+    excludedTags: list[BeautifulSoupSearch] | None = None,
+    extractTags: dict[str, BeautifulSoupSearch] = None,
+    extractLinks: bool | str = False
+):
+  # Pull in html using LlamaIndex Loader
+  page = SimpleWebPageReader().load_data([url]).pop()
 
-  debug("====> Parsing HTML [url: {}]".format(url))
-  htmlDoc = parseWebPage(document.text);
+  # The 'page' is a string so we need to convert that to HTML.
+  # BeautifulSoup can help us with that
+  html = BeautifulSoup(page.text, 'html.parser')
 
-  debug("====> Creating Document [url: {}]".format(url))
-  now = datetime.now()
-  createDate = f'{now:%Y%m%d%H%M%S}'
-  nodes = metadataExtractor([
-    Document(
-      text=htmlDoc.text,
-      id_=url,
-      doc_id=url,
-      metadata={ "source": url, "createdAt": createDate }
-      )
-    ])
+  # Depending on the URL you may get better results by 
+  if (contentTag):
+    html = html.find(contentTag)
 
-  debug("====> Loading Into Graph DB [url: {}]".format(url))
-  addNodesToKG(nodes, context)
+  # Setup the extracted tags dict
+  extractedTags: dict[str, list[str]] = dict()
 
-  debug("====> Getting Links [url: {}]".format(url))
-  webPageLinks = getLinks(htmlDoc.encode_contents(formatter="html"), url=url)
+  # Links are a valuable part of parsing process.  This motivates
+  # the option for links to be its own extraction task as opposed
+  # requiring the user enter a BeautifulSoup query for links
+  if (isinstance(extractLinks, str) or extractLinks == True):
+    links = list()
+    linkTags = extractElements(html, { 'name': 'a' })
 
-  exit()
+    for link in linkTags:
+      # If a string is passed, then we want to filter on that string
+      href = link.get('href')
 
-  for link in webPageLinks:
-    try:
-      if (link not in links):
-        links.add(link)
-        load(link, context, links=links)
+      if (not href or not isinstance(href, str)):
+        continue;
+
+      if (isinstance(extractLinks, str)):
+        if (href.startswith(extractLinks)):
+          links.append(link['href'])
       else:
-        debug("===> Link Already Loaded [url: {}]...Skipping".format(url))
-    except Exception as error:
-      print(f'{error}')
-      print(f'Failed Link: {link}')
-      exit()
+        links.append(link['href'])
+    
+    extractedTags['a'] = links
+
+  # If the extract tags arg has been provided, we want to go
+  # find any instance of the search and return it as part of
+  # the dict.
+  if (extractTags):
+    # Get the keys from the parameter
+    keys = extractTags.keys();
+    # Create a new dict using those keys
+    for key, val in zip(keys, [list()]*len(keys)):
+      extractedTags[key] = val
+
+    for key in keys:
+      search = extractTags[key]
+      # Returns a list of html elements that match
+      elements = extractElements(html, search)
+
+      # All data should be markdown so we are going to
+      # run the htmlToMarkdown cleanup
+      for elem in elements:
+        extractedTags[key].append(htmlToMarkdown(str(elem)))
+
+  # If excluded strings have been provided, we need to remove
+  # those from the HTML.  These will be HTML tags such as 'script'
+  # or 'div'
+  if (excludedTags):
+    [removeElements(html, search) for search in excludedTags]
+  
+  # Once we have extracted all of the tags we have our "final"
+  # HTML document that we can then convert into markdown
+  markdown = htmlToMarkdown(str(html))
+
+  return markdown, extractedTags

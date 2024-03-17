@@ -8,6 +8,7 @@ llama-index-readers-web
 llama-index-vector-stores-neo4jvector
 llama-index-storage-docstore-mongodb
 langchain
+langchain_experimental
 pymongo
 motor
 beautifulsoup4
@@ -15,3 +16,4 @@ markdownify
 python-dotenv
 Flask==0.12.1
 transformers
+faiss-cpu
